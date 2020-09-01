@@ -1,0 +1,4 @@
+#!/usr/bin/env node
+
+const main = require("../dist").default;
+main(process.argv[2]);

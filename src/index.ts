@@ -100,7 +100,10 @@ const tap = <T = any>(fn: (x: T) => any) => (x: T): T => {
 };
 
 const main = async (baseUrl: string) => {
-  console.error(`[INFO] Fetching for ${baseUrl}`);
+  baseUrl = normalize(baseUrl);
+
+  console.error(`[INFO] Starting at ${baseUrl}`);
+
   const hasSimilarOrigin = similarOrigin(baseUrl);
   const queue = [baseUrl];
   const visited = new Set<string>();
@@ -203,9 +206,7 @@ const main = async (baseUrl: string) => {
 if (require.main === module) {
   console.log("called from CLI");
 
-  const baseUrl = normalize(process.argv[2]);
-
-  main(baseUrl).then(console.error, console.error);
+  main(process.argv[2]).then(console.error, console.error);
 }
 
-// main("https://iansinnott.com/").then(console.log, console.error);
+export default main;
