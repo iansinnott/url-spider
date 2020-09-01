@@ -4,7 +4,9 @@
     "url-spider": "bin/url-spider"
   },
   "scripts": {
-    "build": "tsc"
+    "build": "tsc",
+    "prestart:run": "yarn run build",
+    "start:run": "node ./dist/index.js"
   },
   "dependencies": {
     "@types/cheerio": "0.22.21",

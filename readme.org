@@ -1,0 +1,21 @@
+* URL Spider
+
+A simple Script to spider all the URLs for a given domain _and_ its subdomains.
+
+Example:
+
+#+BEGIN_SRC shell
+yarn start:run 'https://iansinnott.com'
+#+END_SRC
+
+Will spider all the URLs at my site as well as all URLs at =blog.iansinnott.com=, =lab.iansinnott.com=, etc. URLs to external sites will be skipped.
+
+Once the script runs it will dup all the information to a temp file. The location on your system will depend on the built-in =mktemp= util.
+
+** Usage
+
+#+BEGIN_SRC shell
+yarn start:run <url>
+#+END_SRC`
+
+Will spider the =<url>= and all its subdomains.
