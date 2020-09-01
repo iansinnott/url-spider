@@ -191,6 +191,11 @@ string_decoder@^1.1.1:
   dependencies:
     safe-buffer "~5.2.0"
 
+tld-extract@^2.0.0:
+  version "2.0.0"
+  resolved "https://registry.yarnpkg.com/tld-extract/-/tld-extract-2.0.0.tgz#ceb137712fd51db8cac07fdee3ccf5c2e7b558b9"
+  integrity sha512-oNyxXIZP7WDwZU9hbtc+oP6HYWKdCy59tVz6cUP4OZvOLrZBBzTCMYv7eMGF0y26JbuycX8Q6mDYsD1u/rcIzQ==
+
 util-deprecate@^1.0.1:
   version "1.0.2"
   resolved "https://registry.yarnpkg.com/util-deprecate/-/util-deprecate-1.0.2.tgz#450d4dc9fa70de732762fbd2d4a28981419a0ccf"

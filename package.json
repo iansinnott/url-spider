@@ -5,6 +5,7 @@
     "@types/node": "^14.6.2",
     "axios": "^0.20.0",
     "cheerio": "^1.0.0-rc.3",
-    "debug": "^4.1.1"
+    "debug": "^4.1.1",
+    "tld-extract": "^2.0.0"
   }
 }

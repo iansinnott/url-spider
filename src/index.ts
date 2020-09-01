@@ -1,73 +1,128 @@
 import axios from "axios";
 import cheerio from "cheerio";
 import url from "url";
+import { execSync } from "child_process";
+import fs from "fs";
+import { strict as assert } from "assert";
+import extractor from "tld-extract";
 
-const debug = require("debug")("url-spider:index");
+interface TLDInfo {
+  tld: string;
+  domain: string;
+  sub: string; // Subdomain (can be the empty string)
+}
+
+interface TLDParseFn {
+  (x: string | URL): TLDInfo;
+}
+
+const extractTLD: TLDParseFn = x => {
+  return extractor(x, {
+    allowPrivateTLD: true,
+    allowUnknownTLD: true
+  });
+};
+
+const debug = require("debug")("url-spider:main");
+
+const HELP = `
+-v, --verbose, --debug : Run in debug mode
+--ignore <pattern>     : Ignore a URL pattern
+-h, --help             : Print this help
+`;
+
+// NOTE Will fail if URL is malformed, which is what we want
+const normalize = (url: string) => {
+  return new URL(url).href;
+};
 
 const sleep = (ms: number, message = "") =>
   new Promise(resolve => {
     setTimeout(resolve, ms);
     if (message) {
-      console.log(`[SLEEP ${ms}] ${message}`);
+      debug(`[SLEEP ${ms}] ${message}`);
     }
   });
 
-const similarOrigin = (a: string) => (b: string) => {
-  const [ha, hb] = [a, b].map(x => new URL(x).host);
-  const [shorter, longer] = [ha, hb].sort((a, b) => a.length - b.length);
-  const result = shorter === longer || longer.includes(shorter);
-  return result;
+// Either i'm missing something or this is actually a hard problem. Using built
+// in tools it's easy enough to check that the origin of two urls are the same.
+// However, due to the nature of tlds it's much harder to say "is this a
+// subdomain of that." For example. blog.iansinnott.com and iansinnott.com.
+// Easy. In fact the transformation from the former to the latter could be done
+// relatively simply, knowing that the URL has the form <sub>.<name>.<tld> but
+// what about blog.iansinnott.com.tw? Well crap, how do we consistently match
+// without ending up matching com.tw and saying a.com.tw is a subdomain of
+// b.com.tw?
+// NOTE The obvious option was to just use a dict, but I wasn't sure where one
+// can reliably source all known TLDs. Moreover, all tlds is a moving target so
+// without an effective algorithm there's essentially know way to ever have a
+// stable lib that will just work
+const similarOrigin = (a: string) => {
+  const base = extractTLD(a);
+  return (b: string) => {
+    try {
+      const x = extractTLD(b);
+      const result = x.tld === base.tld && x.domain === base.domain;
+      debug("similar", a, b, result);
+      return result;
+    } catch (err) {
+      debug(err.message, `URL -> ${b}`);
+      return false;
+    }
+  };
 };
 
-// debug(
-//   similarOrigin("https://blog.iansinnott.com")("https://iansinnott.com"),
-//   similarOrigin("https://blog.instagram.com")("https://iansinnott.com")
-// );
+assert(similarOrigin("https://blog.iansinnott.com")("https://iansinnott.com"));
+assert(
+  similarOrigin("https://blog.iansinnott.com")("https://www.iansinnott.com")
+);
+assert(
+  similarOrigin("https://www.github.com")("https://iansinnott.com") === false
+);
+assert(
+  similarOrigin("https://blog.iansinnott.com?p=12#hash")(
+    "https://iansinnott.com"
+  )
+);
+assert(
+  similarOrigin("https://blog.instagram.com")("https://iansinnott.com") ===
+    false
+);
 
-interface Result {
-  urls: string[];
-  invalid: string[];
-  skipped: string[];
-}
-
-// HACK Well, not really a hack but not great. I just want the clojure thread
-// macros!
 const run = x => ({
   map: fn => run(fn(x)),
   val: () => x
 });
 
+const tap = <T = any>(fn: (x: T) => any) => (x: T): T => {
+  fn(x);
+  return x;
+};
+
 const main = async (baseUrl: string) => {
-  debug(`Fetching for ${baseUrl}`);
+  console.error(`[INFO] Fetching for ${baseUrl}`);
   const hasSimilarOrigin = similarOrigin(baseUrl);
   const queue = [baseUrl];
-  const visitted = new Set<string>();
-  const discovered = new Set<string>();
-  const result: Result = {
-    urls: [],
-    invalid: [],
-    skipped: []
-  };
+  const visited = new Set<string>();
+  const skipped = new Set<string>();
+  const raw = new Set<string>();
+  const invalid: any[][] = [];
+  const sitemap: { [k: string]: Set<string> } = {};
 
   // Maybe allow a command line flag for this
   // FIXME
-  const customPred = x => {
-    return true;
-    // return !x.includes("blog");
-  };
-
   while (queue.length) {
     // Given the length check we expect this to truly be a string
     const next = queue.shift() as string;
 
     // Skip
-    if (visitted.has(next)) {
+    if (visited.has(next)) {
       debug("[SKIP]", next);
       continue;
     }
 
     try {
-      console.error(`[INFO] Fetch <- ${next}`);
+      console.error(`[INFO] Dequeue <- ${next}`);
 
       // Shrink queue to ensure it will eventually be emptied
       const { data } = await axios.get(next);
@@ -75,49 +130,79 @@ const main = async (baseUrl: string) => {
       // It's important to add this now so we don't accidentally do a check
       // later _before_ we've added it. This controls whether or not we add a
       // URL onto the queue
-      visitted.add(next);
+      visited.add(next);
 
+      // NOTE url.resolve handles absolute, relative, _and_ full urls
+      // NOTE url.resolve seems to do some odd things under certain circumstances.
+      //      For example: url.resolve('', 'http://stylus%E2%B8%BBlang.com/')
+      //      This will insert an additional slash...
       const $ = cheerio.load(data);
       const pageLinks = run($("a"))
         .map(x => x.get()) // Don't use the cheerio pseudo array
-        .map(xs => xs.map(x => $(x).attr("href")))
-        .map(xs => xs.map(x => url.resolve(next, x)))
-        .map(x => Array.from(new Set(x)))
+        .map(xs => xs.map(x => $(x).attr("href"))) // Get all those hrefs
+        .map(
+          tap(xs => {
+            xs.forEach(x => raw.add(x)); // Hold on to raw URLs for debugging normalization issues
+          })
+        )
+        .map(xs => xs.map(x => normalize(url.resolve(next, x)))) // Normalize. See NOTE This is important
+        .map(x => Array.from(new Set(x))) // Uniquify. No need to operate on duplicate links on a page
         .val();
 
-      // Push all links onto discovered
-      pageLinks.forEach(x => {
-        discovered.add(x);
-      });
+      if (!sitemap[next]) sitemap[next] = new Set();
 
-      const nextLinks = pageLinks.filter(hasSimilarOrigin).filter(customPred);
-      const skipped = nextLinks.filter(x => !hasSimilarOrigin(x));
+      const nextLinks = pageLinks.filter(x => hasSimilarOrigin(x));
+      const skipLinks = pageLinks.filter(x => !hasSimilarOrigin(x));
 
-      await sleep(100);
+      // Try not to bombard the server too hard
+      await sleep(20);
 
-      result.skipped = result.skipped.concat(skipped);
+      // Although these links will be skipped, I still want to keep track of them
+      skipLinks.forEach(x => skipped.add(x));
+
+      // Enqueue all the links that we will recurse on
       nextLinks.forEach(x => {
-        debug("[INFO] enqueue ->", x);
+        debug("[INFO] Enqueue ->", x);
         queue.push(x);
       });
-      debug(result, visitted);
-      debug(queue);
     } catch (err) {
       console.error("[ERR]", err.message);
-      result.invalid.push(next);
+      invalid.push([err.response?.status || err.message, next]);
     }
   }
 
-  return {
-    ...result,
-    visited: Array.from(visitted),
-    discovered: Array.from(discovered)
+  // NOTE: Not yet appropriate for JSON, need Sets converted
+  const stats = {
+    invalid,
+    visited,
+    skipped,
+    sitemap,
+    raw
   };
+
+  // Convert sets to arrays
+  const converter = (_: string, v: any) => {
+    return v instanceof Set ? Array.from(v) : v;
+  };
+
+  try {
+    const tmpFile = execSync("mktemp", { encoding: "utf8" }).trim() + ".json";
+    fs.writeFileSync(tmpFile, JSON.stringify(stats, converter, 2), {
+      encoding: "utf8"
+    });
+    console.error("[INFO] Stats written to", tmpFile);
+  } catch (err) {
+    console.error("[ERR] Could not save stats. Aborting.");
+    debug(err);
+  }
 };
 
 if (require.main === module) {
-  debug("[INFO] called from CLI");
-  main(process.argv[2]).then(debug, console.warn);
+  console.log("called from CLI");
+
+  const baseUrl = normalize(process.argv[2]);
+
+  main(baseUrl).then(console.error, console.error);
 }
 
 // main("https://iansinnott.com/").then(console.log, console.error);
