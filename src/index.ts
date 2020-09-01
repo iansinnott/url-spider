@@ -149,22 +149,25 @@ const main = async (baseUrl: string) => {
         .map(x => Array.from(new Set(x))) // Uniquify. No need to operate on duplicate links on a page
         .val();
 
+      // Instantiate set if needed
       if (!sitemap[next]) sitemap[next] = new Set();
 
-      const nextLinks = pageLinks.filter(x => hasSimilarOrigin(x));
-      const skipLinks = pageLinks.filter(x => !hasSimilarOrigin(x));
+      for (const x of pageLinks) {
+        sitemap[next].add(x); // Build sitemap
+
+        // Either enqueue or
+        if (hasSimilarOrigin(x)) {
+          debug("[INFO] Enqueue ->", x);
+          queue.push(x);
+        } else {
+          skipped.add(x);
+        }
+      }
 
       // Try not to bombard the server too hard
+      // NOTE Since this isn't parallelized at all (yet) this is probably not
+      // necessary
       await sleep(20);
-
-      // Although these links will be skipped, I still want to keep track of them
-      skipLinks.forEach(x => skipped.add(x));
-
-      // Enqueue all the links that we will recurse on
-      nextLinks.forEach(x => {
-        debug("[INFO] Enqueue ->", x);
-        queue.push(x);
-      });
     } catch (err) {
       console.error("[ERR]", err.message);
       invalid.push([err.response?.status || err.message, next]);
