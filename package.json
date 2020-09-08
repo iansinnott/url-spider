@@ -5,8 +5,9 @@
   },
   "scripts": {
     "build": "tsc",
-    "prestart:run": "yarn run build",
-    "start:run": "node ./dist/index.js"
+    "start:run": "yarn run build && node ./dist/index.js",
+    "start:inspect": "yarn run build && node --inspect-brk ./dist/index.js",
+    "start:debug": "yarn run start:inspect"
   },
   "dependencies": {
     "@types/cheerio": "0.22.21",
