@@ -1,10 +1,10 @@
-import axios from "axios";
-import cheerio from "cheerio";
-import url from "url";
-import { execSync } from "child_process";
-import fs from "fs";
-import { strict as assert } from "assert";
-import extractor from "tld-extract";
+import axios from 'axios';
+import cheerio from 'cheerio';
+import url from 'url';
+import { execSync } from 'child_process';
+import fs from 'fs';
+import { strict as assert } from 'assert';
+import extractor from 'tld-extract';
 
 interface TLDInfo {
   tld: string;
@@ -16,14 +16,14 @@ interface TLDParseFn {
   (x: string | URL): TLDInfo;
 }
 
-const extractTLD: TLDParseFn = x => {
+const extractTLD: TLDParseFn = (x) => {
   return extractor(x, {
     allowPrivateTLD: true,
-    allowUnknownTLD: true
+    allowUnknownTLD: true,
   });
 };
 
-const debug = require("debug")("url-spider:main");
+const debug = require('debug')('url-spider:main');
 
 const HELP = `
 -v, --verbose, --debug : Run in debug mode
@@ -36,8 +36,8 @@ const normalize = (url: string) => {
   return new URL(url).href;
 };
 
-const sleep = (ms: number, message = "") =>
-  new Promise(resolve => {
+const sleep = (ms: number, message = '') =>
+  new Promise((resolve) => {
     setTimeout(resolve, ms);
     if (message) {
       debug(`[SLEEP ${ms}] ${message}`);
@@ -63,7 +63,7 @@ const similarOrigin = (a: string) => {
     try {
       const x = extractTLD(b);
       const result = x.tld === base.tld && x.domain === base.domain;
-      debug("similar", a, b, result);
+      debug('similar', a, b, result);
       return result;
     } catch (err) {
       debug(err.message, `URL -> ${b}`);
@@ -72,27 +72,22 @@ const similarOrigin = (a: string) => {
   };
 };
 
-assert(similarOrigin("https://blog.iansinnott.com")("https://iansinnott.com"));
+assert(similarOrigin('https://blog.iansinnott.com')('https://iansinnott.com'));
 assert(
-  similarOrigin("https://blog.iansinnott.com")("https://www.iansinnott.com")
+  similarOrigin('https://blog.iansinnott.com')('https://www.iansinnott.com'),
 );
 assert(
-  similarOrigin("https://www.github.com")("https://iansinnott.com") === false
+  similarOrigin('https://www.github.com')('https://iansinnott.com') === false,
 );
 assert(
-  similarOrigin("https://blog.iansinnott.com?p=12#hash")(
-    "https://iansinnott.com"
-  )
+  similarOrigin('https://blog.iansinnott.com?p=12#hash')(
+    'https://iansinnott.com',
+  ),
 );
 assert(
-  similarOrigin("https://blog.instagram.com")("https://iansinnott.com") ===
-    false
+  similarOrigin('https://blog.instagram.com')('https://iansinnott.com') ===
+    false,
 );
-
-const run = x => ({
-  map: fn => run(fn(x)),
-  val: () => x
-});
 
 const tap = <T = any>(fn: (x: T) => any) => (x: T): T => {
   fn(x);
@@ -100,6 +95,7 @@ const tap = <T = any>(fn: (x: T) => any) => (x: T): T => {
 };
 
 const main = async (baseUrl: string) => {
+  assert(baseUrl, 'No starting URL provided');
   baseUrl = normalize(baseUrl);
 
   console.error(`[INFO] Starting at ${baseUrl}`);
@@ -120,12 +116,14 @@ const main = async (baseUrl: string) => {
 
     // Skip
     if (visited.has(next)) {
-      debug("[SKIP]", next);
+      debug('[SKIP]', next);
       continue;
     }
 
     try {
       console.error(`[INFO] Dequeue <- ${next}`);
+
+      debugger;
 
       // Shrink queue to ensure it will eventually be emptied
       const { data } = await axios.get(next);
@@ -140,17 +138,17 @@ const main = async (baseUrl: string) => {
       //      For example: url.resolve('', 'http://stylus%E2%B8%BBlang.com/')
       //      This will insert an additional slash...
       const $ = cheerio.load(data);
-      const pageLinks = run($("a"))
-        .map(x => x.get()) // Don't use the cheerio pseudo array
-        .map(xs => xs.map(x => $(x).attr("href"))) // Get all those hrefs
-        .map(
-          tap(xs => {
-            xs.forEach(x => raw.add(x)); // Hold on to raw URLs for debugging normalization issues
-          })
+      const pageLinks = await Promise.resolve($('a'))
+        .then((x) => x.get()) // Don't use the cheerio pseudo array
+        .then((xs) => xs.map((x) => $(x).attr('href') as string)) // Get all those hrefs
+        .then(
+          tap((xs) => {
+            xs.forEach((x) => raw.add(x)); // Hold on to raw URLs for debugging normalization issues
+          }),
         )
-        .map(xs => xs.map(x => normalize(url.resolve(next, x)))) // Normalize. See NOTE This is important
-        .map(x => Array.from(new Set(x))) // Uniquify. No need to operate on duplicate links on a page
-        .val();
+        .then((xs) => xs.filter((x) => x && !x.startsWith('#'))) // Remove empty URLs and URL hashes. They aren't relevant.
+        .then((xs) => xs.map((x) => normalize(url.resolve(next, x)))) // Normalize. See NOTE This is important
+        .then((x) => Array.from(new Set(x))); // Uniquify. No need to operate on duplicate links on a page
 
       // Instantiate set if needed
       if (!sitemap[next]) sitemap[next] = new Set();
@@ -160,7 +158,7 @@ const main = async (baseUrl: string) => {
 
         // Either enqueue or
         if (hasSimilarOrigin(x)) {
-          debug("[INFO] Enqueue ->", x);
+          debug('[INFO] Enqueue ->', x);
           queue.push(x);
         } else {
           skipped.add(x);
@@ -172,7 +170,7 @@ const main = async (baseUrl: string) => {
       // necessary
       await sleep(20);
     } catch (err) {
-      console.error("[ERR]", err.message);
+      console.error('[ERR]', err.message);
       invalid.push([err.response?.status || err.message, next]);
     }
   }
@@ -183,7 +181,7 @@ const main = async (baseUrl: string) => {
     visited,
     skipped,
     sitemap,
-    raw
+    raw,
   };
 
   // Convert sets to arrays
@@ -192,19 +190,19 @@ const main = async (baseUrl: string) => {
   };
 
   try {
-    const tmpFile = execSync("mktemp", { encoding: "utf8" }).trim() + ".json";
+    const tmpFile = execSync('mktemp', { encoding: 'utf8' }).trim() + '.json';
     fs.writeFileSync(tmpFile, JSON.stringify(stats, converter, 2), {
-      encoding: "utf8"
+      encoding: 'utf8',
     });
-    console.error("[INFO] Stats written to", tmpFile);
+    console.error('[INFO] Stats written to', tmpFile);
   } catch (err) {
-    console.error("[ERR] Could not save stats. Aborting.");
+    console.error('[ERR] Could not save stats. Aborting.');
     debug(err);
   }
 };
 
 if (require.main === module) {
-  console.log("called from CLI");
+  console.log('called from CLI');
 
   main(process.argv[2]).then(console.error, console.error);
 }
