@@ -19,3 +19,8 @@ yarn start:run <url>
 #+END_SRC`
 
 Will spider the =<url>= and all its subdomains.
+
+
+* FIXME
+
+This script does no stream processing. In other words, it will quite happily eat up all the JS heap memory if the site you're spidering has many URLs.
